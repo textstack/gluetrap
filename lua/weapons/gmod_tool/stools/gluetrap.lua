@@ -40,6 +40,8 @@ local function makeGlueTrap(ent)
 		ply:Freeze(true)
 		ply:SetParent(ent)
 		ply:SetEyeAngles(ang - ent:EyeAngles())
+
+		ply:EmitSound(string.format("physics/flesh/flesh_squishy_impact_hard%d.wav", math.random(1, 4)))
 	end)
 
 	ent:CallOnRemove("gluetrap", function()
@@ -59,6 +61,8 @@ local function clearStuck(ply)
 	ply:SetEyeAngles(ang)
 
 	ply.StuckTo = nil
+
+	ply:EmitSound(string.format("physics/flesh/flesh_impact_bullet%d.wav", math.random(1, 5)))
 end
 
 function breakGlueTrap(ent)
