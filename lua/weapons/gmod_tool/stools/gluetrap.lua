@@ -23,6 +23,9 @@ local function makeGlueTrap(ent)
 
 	duplicator.StoreEntityModifier(ent, "gluetrap", {})
 
+	local minS, maxS = ent:WorldSpaceAABB()
+	ent.UnstuckDist = (maxS - minS):LengthSqr()
+
 	ent.StuckEnts = {}
 
 	ent.GlueTouch = ent:AddCallback("PhysicsCollide", function(_, data)
@@ -33,14 +36,12 @@ local function makeGlueTrap(ent)
 		ply.StuckTo = ent
 		ent.StuckEnts[ply] = true
 
-		ply:SetMoveType(MOVETYPE_NONE)
-
 		local ang = ply:EyeAngles()
 
+		ply:SetMoveType(MOVETYPE_NOCLIP)
 		ply:Freeze(true)
 		ply:SetParent(ent)
 		ply:SetEyeAngles(ang - ent:EyeAngles())
-
 		ply:EmitSound(string.format("physics/flesh/flesh_squishy_impact_hard%d.wav", math.random(1, 4)))
 	end)
 
@@ -59,10 +60,9 @@ local function clearStuck(ply)
 	ply:SetMoveType(MOVETYPE_WALK)
 	ply:Freeze(false)
 	ply:SetEyeAngles(ang)
+	ply:EmitSound(string.format("physics/flesh/flesh_impact_bullet%d.wav", math.random(1, 5)))
 
 	ply.StuckTo = nil
-
-	ply:EmitSound(string.format("physics/flesh/flesh_impact_bullet%d.wav", math.random(1, 5)))
 end
 
 function breakGlueTrap(ent)
@@ -81,6 +81,7 @@ function breakGlueTrap(ent)
 
 	ent.StuckEnts = nil
 	ent.GlueTouch = nil
+	ent.UnstuckDist = nil
 end
 
 duplicator.RegisterEntityModifier("gluetrap", function(_, ent)
@@ -122,11 +123,23 @@ if SERVER then
 	hook.Add("Think", "Gluetrap", function()
 		for _, v in player.Iterator() do
 			if not IsValid(v.StuckTo) then continue end
-			if v.StuckTo:WorldSpaceCenter():DistToSqr(v:WorldSpaceCenter()) <= 250000 and v:Alive() then continue end
+			if v.StuckTo:WorldSpaceCenter():DistToSqr(v:WorldSpaceCenter()) <= v.StuckTo.UnstuckDist and v:Alive() then continue end
 
 			v.StuckTo.StuckEnts[v] = nil
 			clearStuck(v)
 		end
+	end)
+
+	hook.Add("EntityTakeDamage", "Gluetrap", function(target, dmg)
+		if not target:IsPlayer() then return end
+
+		local attacker = dmg:GetAttacker()
+		if not attacker:IsValid() then return end
+
+		if not attacker:GetNWBool("gluetrap") then return end
+		if not dmg:IsDamageType(DMG_CRUSH) then return end
+
+		return true
 	end)
 
 	return
