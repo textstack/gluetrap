@@ -14,6 +14,54 @@ local function canBeGlueTrap(ent)
 	return true
 end
 
+local function clearStuck(ply)
+	if not IsValid(ply) then return end
+	if not ply:GetNWBool("gluedtrap") then return end
+
+	ply:SetNWBool("gluedtrap", false)
+
+	local ang = ply:EyeAngles()
+	ang.r = 0
+
+	ply:SetParent(nil)
+	ply:SetMoveType(MOVETYPE_WALK)
+	ply:Freeze(false)
+	ply:SetEyeAngles(ang)
+	ply:DrawViewModel(true)
+	ply:EmitSound(string.format("physics/flesh/flesh_impact_bullet%d.wav", math.random(1, 5)))
+
+	if IsValid(ply.StuckParent) then
+		ply.StuckParent:Remove()
+	end
+
+	ply.StuckTo = nil
+	ply.StuckParent = nil
+end
+
+local function makeStuck(ply, ent)
+	if not IsValid(ply) or not ply:IsPlayer() then return end
+	if IsValid(ply.StuckTo) then return end
+	if not ent:GetNWBool("gluetrap") then return end
+
+	ply:SetNWBool("gluedtrap", true)
+
+	local stuckP = ents.Create("plyglue")
+	ply.StuckParent = stuckP
+
+	stuckP:SetPos(ply:GetPos())
+	stuckP:SetParent(ent)
+	stuckP:SetAngles(angle_zero)
+
+	ply.StuckTo = ent
+	ent.StuckEnts[ply] = true
+
+	ply:SetMoveType(MOVETYPE_NOCLIP)
+	ply:Freeze(true)
+	ply:SetParent(stuckP)
+	ply:DrawViewModel(false)
+	ply:EmitSound(string.format("physics/flesh/flesh_squishy_impact_hard%d.wav", math.random(1, 4)))
+end
+
 local breakGlueTrap
 local function makeGlueTrap(ent)
 	if not IsValid(ent) then return end
@@ -29,40 +77,14 @@ local function makeGlueTrap(ent)
 	ent.StuckEnts = {}
 
 	ent.GlueTouch = ent:AddCallback("PhysicsCollide", function(_, data)
-		local ply = data.HitEntity
-		if not IsValid(ply) or not ply:IsPlayer() then return end
-		if IsValid(ply.StuckTo) then return end
-
-		ply.StuckTo = ent
-		ent.StuckEnts[ply] = true
-
-		local ang = ply:EyeAngles()
-
-		ply:SetMoveType(MOVETYPE_NOCLIP)
-		ply:Freeze(true)
-		ply:SetParent(ent)
-		ply:SetEyeAngles(ang - ent:EyeAngles())
-		ply:EmitSound(string.format("physics/flesh/flesh_squishy_impact_hard%d.wav", math.random(1, 4)))
+		timer.Simple(0, function()
+			makeStuck(data.HitEntity, ent)
+		end)
 	end)
 
 	ent:CallOnRemove("gluetrap", function()
 		breakGlueTrap(ent)
 	end)
-end
-
-local function clearStuck(ply)
-	if not IsValid(ply) then return end
-
-	local ang = ply:EyeAngles()
-	ang.r = 0
-
-	ply:SetParent(nil)
-	ply:SetMoveType(MOVETYPE_WALK)
-	ply:Freeze(false)
-	ply:SetEyeAngles(ang)
-	ply:EmitSound(string.format("physics/flesh/flesh_impact_bullet%d.wav", math.random(1, 5)))
-
-	ply.StuckTo = nil
 end
 
 function breakGlueTrap(ent)
@@ -119,6 +141,10 @@ function TOOL:RightClick(tr)
 	return true
 end
 
+hook.Add("PlayerSwitchWeapon", "Gluetrap", function(ply)
+	if ply:GetNWBool("gluedtrap") then return true end
+end)
+
 if SERVER then
 	hook.Add("Think", "Gluetrap", function()
 		for _, v in player.Iterator() do
@@ -167,3 +193,19 @@ end
 function TOOL.BuildCPanel(panel)
 	panel:Help("Turns props into glue traps.")
 end
+
+hook.Add("CalcView", "Gluetrap", function(ply, origin)
+	if not ply:GetNWBool("gluedtrap") then return end
+
+	local parent = ply:GetParent()
+	if not IsValid(parent) then return end
+
+	local offset = ply:GetViewOffset()
+	local pos = ply:GetPos()
+
+	offset:Rotate(parent:GetAngles())
+
+	origin.x = pos.x + offset.x
+	origin.y = pos.y + offset.y
+	origin.z = pos.z + offset.z
+end)
