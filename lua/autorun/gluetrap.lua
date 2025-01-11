@@ -127,6 +127,7 @@ end
 function Gluetrap.ClearStuck(ply)
 	local vehicle = ply.StuckTo
 	if not IsValid(vehicle) then return end
+	ply.StuckTo = nil
 
 	local ang = ply:EyeAngles()
 	ang.r = 0
@@ -134,8 +135,6 @@ function Gluetrap.ClearStuck(ply)
 	ply:EmitSound(string.format("physics/flesh/flesh_impact_bullet%d.wav", math.random(1, 5)))
 	ply:ExitVehicle()
 	ply:SetEyeAngles(ang)
-
-	ply.StuckTo = nil
 
 	if IsValid(vehicle.StuckTo) and vehicle.StuckTo.StuckEnts then
 		vehicle.StuckTo.StuckEnts[vehicle:EntIndex()] = nil
@@ -147,6 +146,14 @@ duplicator.RegisterEntityModifier("gluetrap", function(_, ent)
 end)
 
 hook.Add("PostPlayerDeath", "Gluetrap", function(ply)
+	Gluetrap.ClearStuck(ply)
+end)
+
+hook.Add("PlayerLeaveVehicle", "Gluetrap", function(ply)
+	Gluetrap.ClearStuck(ply)
+end)
+
+hook.Add("PlayerDisconnected", "Gluetrap", function(ply)
 	Gluetrap.ClearStuck(ply)
 end)
 
