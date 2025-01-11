@@ -1,0 +1,162 @@
+Gluetrap = Gluetrap or {}
+
+function Gluetrap.CanBeGlueTrap(ent)
+	if not IsValid(ent) then return false end
+	if ent:IsRagdoll() then return false end
+	if not ent:IsSolid() then return false end
+	return true
+end
+
+if CLIENT then return end
+
+hook.Add("CanExitVehicle", "Gluetrap", function(vehicle, ply)
+	if ply.StuckTo == vehicle then return false end
+end)
+
+function Gluetrap.MakeGlueTrap(ent)
+	if not IsValid(ent) then return end
+	if ent:GetNWBool("gluetrap") then return end
+
+	ent.StuckEnts = {}
+	ent:SetNWBool("gluetrap", true)
+	duplicator.StoreEntityModifier(ent, "gluetrap", {})
+
+	ent.GlueTouch = ent:AddCallback("PhysicsCollide", function(_, data)
+		timer.Simple(0, function()
+			Gluetrap.MakeStuck(data.HitEntity, ent)
+		end)
+	end)
+
+	ent:CallOnRemove("gluetrap", function()
+		Gluetrap.BreakGlueTrap(ent)
+	end)
+end
+
+function Gluetrap.BreakGlueTrap(ent)
+	if not IsValid(ent) then return end
+	if not ent:GetNWBool("gluetrap") then return end
+
+	ent:SetNWBool("gluetrap", false)
+	ent:RemoveCallback("PhysicsCollide", ent.GlueTouch)
+	ent:RemoveCallOnRemove("gluetrap")
+	duplicator.ClearEntityModifier(ent, "gluetrap")
+
+	for k, _ in pairs(ent.StuckEnts) do
+		local e = Entity(k)
+		if IsValid(e) then
+			e:Remove()
+		end
+	end
+
+	ent.StuckEnts = nil
+	ent.GlueTouch = nil
+end
+
+local function sit(ply, parent)
+	local vehicle = ents.Create("prop_vehicle_prisoner_pod")
+
+	local ang = ply:EyeAngles()
+	local pitch = ang.p
+	ang.p, ang.r = 0, 0
+
+	vehicle:SetPos(ply:GetPos())
+	vehicle:SetModel("models/vehicles/prisoner_pod_inner.mdl")
+	vehicle:SetKeyValue("vehiclescript", "scripts/vehicles/prisoner_pod.txt")
+	vehicle:SetKeyValue("limitview", "1")
+	vehicle:Spawn()
+	vehicle:Activate()
+
+	if not IsValid(vehicle) or not IsValid(vehicle:GetPhysicsObject()) then
+		SafeRemoveEntity(vehicle)
+		return
+	end
+
+	local phys = vehicle:GetPhysicsObject()
+	phys:Sleep()
+	phys:EnableGravity(false)
+	phys:EnableMotion(false)
+	phys:EnableCollisions(false)
+	phys:SetMass(1)
+
+	vehicle:SetMoveType(MOVETYPE_PUSH)
+	vehicle:SetCollisionGroup(COLLISION_GROUP_WORLD)
+	vehicle:SetNotSolid(true)
+	vehicle:SetParent(parent)
+	vehicle:CollisionRulesChanged()
+	vehicle:DrawShadow(false)
+	vehicle:SetColor(color_transparent)
+	vehicle:SetRenderMode(RENDERMODE_TRANSALPHA)
+	vehicle:SetNoDraw(true)
+	vehicle:SetThirdPersonMode(false)
+
+	vehicle.VehicleName = "Pod"
+	vehicle.ClassOverride = "prop_vehicle_prisoner_pod"
+	vehicle.PhysgunDisabled = true
+	vehicle.m_tblToolsAllowed = {}
+	vehicle.customCheck = function() return false end
+
+	ply:EnterVehicle(vehicle)
+	ply:SetCollisionGroup(COLLISION_GROUP_WEAPON)
+	ply:CollisionRulesChanged()
+
+	ply:SetEyeAngles(Angle(pitch, 0, 0))
+	vehicle:SetAngles(ang)
+
+	return vehicle
+end
+
+function Gluetrap.MakeStuck(ply, ent)
+	if not IsValid(ply) or not IsValid(ent) then return end
+	if not ply:IsPlayer() or IsValid(ply.StuckTo) then return end
+	if not ent.StuckEnts then return end
+
+	local vehicle = sit(ply, ent)
+	if not IsValid(vehicle) then return end
+
+	vehicle:CallOnRemove("clearplayer", function()
+		Gluetrap.ClearStuck(ply)
+	end)
+
+	ply:EmitSound(string.format("physics/flesh/flesh_squishy_impact_hard%d.wav", math.random(1, 4)))
+
+	ply.StuckTo = vehicle
+	vehicle.StuckTo = ent
+	ent.StuckEnts[vehicle:EntIndex()] = true
+end
+
+function Gluetrap.ClearStuck(ply)
+	local vehicle = ply.StuckTo
+	if not IsValid(vehicle) then return end
+
+	local ang = ply:EyeAngles()
+	ang.r = 0
+
+	ply:EmitSound(string.format("physics/flesh/flesh_impact_bullet%d.wav", math.random(1, 5)))
+	ply:ExitVehicle()
+	ply:SetEyeAngles(ang)
+
+	ply.StuckTo = nil
+
+	if IsValid(vehicle.StuckTo) and vehicle.StuckTo.StuckEnts then
+		vehicle.StuckTo.StuckEnts[vehicle:EntIndex()] = nil
+	end
+end
+
+duplicator.RegisterEntityModifier("gluetrap", function(_, ent)
+	Gluetrap.MakeGlueTrap(ent)
+end)
+
+hook.Add("PostPlayerDeath", "Gluetrap", function(ply)
+	Gluetrap.ClearStuck(ply)
+end)
+
+hook.Add("EntityTakeDamage", "Gluetrap", function(target, dmg)
+	if not target:IsPlayer() then return end
+	if not dmg:IsDamageType(DMG_CRUSH) then return end
+
+	local attacker = dmg:GetAttacker()
+	if attacker:IsValid() and attacker:GetNWBool("gluetrap") then return true end
+
+	local inflictor = dmg:GetInflictor()
+	if inflictor:IsValid() and inflictor:GetNWBool("gluetrap") then return true end
+end)
