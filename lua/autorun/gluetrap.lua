@@ -2,7 +2,7 @@ Gluetrap = Gluetrap or {}
 
 function Gluetrap.CanBeGlueTrap(ent)
 	if not IsValid(ent) then return false end
-	if ent:IsRagdoll() then return false end
+	if ent:GetClass() ~= "prop_physics" then return false end
 	if not ent:IsSolid() then return false end
 	return true
 end
@@ -23,7 +23,7 @@ function Gluetrap.MakeGlueTrap(ent)
 
 	ent.GlueTouch = ent:AddCallback("PhysicsCollide", function(_, data)
 		timer.Simple(0, function()
-			Gluetrap.MakeStuck(data.HitEntity, ent)
+			Gluetrap.MakeStuck(data.HitEntity, ent, data.HitPos)
 		end)
 	end)
 
@@ -52,14 +52,32 @@ function Gluetrap.BreakGlueTrap(ent)
 	ent.GlueTouch = nil
 end
 
-local function sit(ply, parent)
+local function getNearestPoint(ent, point)
+	local phys = ent:GetPhysicsObject()
+	if not IsValid(phys) then return ent:GetPos() end
+
+	local newPoint = ent:WorldToLocal(point)
+
+	local mins, maxs = ent:OBBMins(), ent:OBBMaxs()
+	newPoint.x = math.Clamp(newPoint.x, mins.x, maxs.x)
+	newPoint.y = math.Clamp(newPoint.y, mins.y, maxs.y)
+	newPoint.z = math.Clamp(newPoint.z, mins.z, maxs.z)
+
+	return ent:LocalToWorld(newPoint)
+end
+
+local function sit(ply, parent, pos)
 	local vehicle = ents.Create("prop_vehicle_prisoner_pod")
 
 	local ang = ply:EyeAngles()
 	local pitch = ang.p
 	ang.p, ang.r = 0, 0
 
-	vehicle:SetPos(ply:GetPos())
+	local posDiff = ply:WorldSpaceCenter() - getNearestPoint(ply, pos)
+	local worldPosDiff = ply:GetPos() - ply:WorldSpaceCenter()
+	posDiff.x, posDiff.y = posDiff.x * 0.4, posDiff.y * 0.4
+
+	vehicle:SetPos(pos + posDiff * 0.93 + worldPosDiff)
 	vehicle:SetModel("models/vehicles/prisoner_pod_inner.mdl")
 	vehicle:SetKeyValue("vehiclescript", "scripts/vehicles/prisoner_pod.txt")
 	vehicle:SetKeyValue("limitview", "1")
@@ -105,12 +123,12 @@ local function sit(ply, parent)
 	return vehicle
 end
 
-function Gluetrap.MakeStuck(ply, ent)
+function Gluetrap.MakeStuck(ply, ent, pos)
 	if not IsValid(ply) or not IsValid(ent) then return end
 	if not ply:IsPlayer() or IsValid(ply.StuckTo) then return end
 	if not ent.StuckEnts then return end
 
-	local vehicle = sit(ply, ent)
+	local vehicle = sit(ply, ent, pos)
 	if not IsValid(vehicle) then return end
 
 	vehicle:CallOnRemove("clearplayer", function()
