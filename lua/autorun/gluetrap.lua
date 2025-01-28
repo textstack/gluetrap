@@ -32,6 +32,23 @@ function Gluetrap.MakeGlueTrap(ent)
 	end)
 end
 
+local function npcUnstuck(npc)
+	local ent = npc.StuckTo
+	if not IsValid(ent) then return end
+
+	local pos = npc:GetPos()
+	npc:SetParent(nil)
+	npc:SetPos(pos)
+
+	npc.StuckTo = nil
+
+	if ent.StuckEnts then
+		ent.StuckEnts[npc:EntIndex()] = nil
+	end
+
+	npc:EmitSound(string.format("physics/flesh/flesh_impact_bullet%d.wav", math.random(1, 5)))
+end
+
 function Gluetrap.BreakGlueTrap(ent)
 	if not IsValid(ent) then return end
 	if not ent:GetNWBool("gluetrap") then return end
@@ -44,7 +61,11 @@ function Gluetrap.BreakGlueTrap(ent)
 	for k, _ in pairs(ent.StuckEnts) do
 		local e = Entity(k)
 		if IsValid(e) then
-			e:Remove()
+			if e:IsNPC() or e:IsNextBot() then
+				npcUnstuck(e)
+			else
+				e:Remove()
+			end
 		end
 	end
 
@@ -123,8 +144,22 @@ local function sit(ply, parent, pos)
 	return vehicle
 end
 
+local function npcStuck(npc, ent, pos)
+	npc:SetParent(ent)
+	npc.StuckTo = ent
+	ent.StuckEnts[npc:EntIndex()] = true
+
+	npc:EmitSound(string.format("physics/flesh/flesh_squishy_impact_hard%d.wav", math.random(1, 4)))
+end
+
 function Gluetrap.MakeStuck(ply, ent, pos)
 	if not IsValid(ply) or not IsValid(ent) then return end
+
+	if ply:IsNPC() or ply:IsNextBot() then
+		npcStuck(ply, ent, pos)
+		return
+	end
+
 	if not ply:IsPlayer() or IsValid(ply.StuckTo) then return end
 	if not ent.StuckEnts then return end
 
@@ -143,6 +178,11 @@ function Gluetrap.MakeStuck(ply, ent, pos)
 end
 
 function Gluetrap.ClearStuck(ply)
+	if ply:IsNPC() or ply:IsNextBot() then
+		npcUnstuck(ply)
+		return
+	end
+
 	local vehicle = ply.StuckTo
 	if not IsValid(vehicle) then return end
 	ply.StuckTo = nil
