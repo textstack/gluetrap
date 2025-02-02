@@ -32,9 +32,25 @@ function Gluetrap.MakeGlueTrap(ent)
 	end)
 end
 
+local function getNearestPoint(ent, point)
+	local phys = ent:GetPhysicsObject()
+	if not IsValid(phys) then return ent:GetPos() end
+
+	local newPoint = ent:WorldToLocal(point)
+
+	local mins, maxs = ent:OBBMins(), ent:OBBMaxs()
+	newPoint.x = math.Clamp(newPoint.x, mins.x, maxs.x)
+	newPoint.y = math.Clamp(newPoint.y, mins.y, maxs.y)
+	newPoint.z = math.Clamp(newPoint.z, mins.z, maxs.z)
+
+	return ent:LocalToWorld(newPoint)
+end
+
 local function npcUnstuck(npc)
 	local ent = npc.StuckTo
 	if not IsValid(ent) then return end
+
+	npc.LastUnstuck = CurTime()
 
 	local pos = npc:GetPos()
 	npc:SetParent(nil)
@@ -71,20 +87,6 @@ function Gluetrap.BreakGlueTrap(ent)
 
 	ent.StuckEnts = nil
 	ent.GlueTouch = nil
-end
-
-local function getNearestPoint(ent, point)
-	local phys = ent:GetPhysicsObject()
-	if not IsValid(phys) then return ent:GetPos() end
-
-	local newPoint = ent:WorldToLocal(point)
-
-	local mins, maxs = ent:OBBMins(), ent:OBBMaxs()
-	newPoint.x = math.Clamp(newPoint.x, mins.x, maxs.x)
-	newPoint.y = math.Clamp(newPoint.y, mins.y, maxs.y)
-	newPoint.z = math.Clamp(newPoint.z, mins.z, maxs.z)
-
-	return ent:LocalToWorld(newPoint)
 end
 
 local function sit(ply, parent, pos)
@@ -145,6 +147,10 @@ local function sit(ply, parent, pos)
 end
 
 local function npcStuck(npc, ent, pos)
+	if npc.LastUnstuck and CurTime() - npc.LastUnstuck < 0.5 then
+		return
+	end
+
 	npc:SetParent(ent)
 	npc.StuckTo = ent
 	ent.StuckEnts[npc:EntIndex()] = true
@@ -162,6 +168,10 @@ function Gluetrap.MakeStuck(ply, ent, pos)
 
 	if not ply:IsPlayer() or IsValid(ply.StuckTo) then return end
 	if not ent.StuckEnts then return end
+
+	if ply.LastUnstuck and CurTime() - ply.LastUnstuck < 0.5 then
+		return
+	end
 
 	local vehicle = sit(ply, ent, pos)
 	if not IsValid(vehicle) then return end
@@ -186,6 +196,8 @@ function Gluetrap.ClearStuck(ply)
 	local vehicle = ply.StuckTo
 	if not IsValid(vehicle) then return end
 	ply.StuckTo = nil
+
+	ply.LastUnstuck = CurTime()
 
 	local ang = ply:EyeAngles()
 	ang.r = 0
@@ -224,4 +236,8 @@ hook.Add("EntityTakeDamage", "Gluetrap", function(target, dmg)
 
 	local inflictor = dmg:GetInflictor()
 	if inflictor:IsValid() and inflictor:GetNWBool("gluetrap") then return true end
+end)
+
+hook.Add("OnPhysgunPickup", "Gluetrap", function(ply, ent)
+	Gluetrap.ClearStuck(ent)
 end)
