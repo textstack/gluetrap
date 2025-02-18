@@ -13,13 +13,17 @@ hook.Add("CanExitVehicle", "Gluetrap", function(vehicle, ply)
 	if ply.StuckTo == vehicle then return false end
 end)
 
-function Gluetrap.MakeGlueTrap(ent)
+function Gluetrap.MakeGlueTrap(ent, stickAny)
 	if not IsValid(ent) then return end
 	if ent:GetNWBool("gluetrap") then return end
 
+	if stickAny then
+		ent.StickAny = true
+	end
+
 	ent.StuckEnts = {}
 	ent:SetNWBool("gluetrap", true)
-	duplicator.StoreEntityModifier(ent, "gluetrap", {})
+	duplicator.StoreEntityModifier(ent, "gluetrap", {stickAny})
 
 	ent.GlueTouch = ent:AddCallback("PhysicsCollide", function(_, data)
 		timer.Simple(0, function()
@@ -50,6 +54,10 @@ local function npcUnstuck(npc)
 	local ent = npc.StuckTo
 	if not IsValid(ent) then return end
 
+	if npc:IsRagdoll() then
+		constraint.RemoveConstraints(npc, "Weld")
+	end
+
 	npc.LastUnstuck = CurTime()
 
 	local pos = npc:GetPos()
@@ -76,12 +84,12 @@ function Gluetrap.BreakGlueTrap(ent)
 
 	for k, _ in pairs(ent.StuckEnts) do
 		local e = Entity(k)
-		if IsValid(e) then
-			if e:IsNPC() or e:IsNextBot() then
-				npcUnstuck(e)
-			else
-				e:Remove()
-			end
+		if not IsValid(e) then continue end
+
+		if e.IsGlueTrapChair then
+			e:Remove()
+		else
+			npcUnstuck(e)
 		end
 	end
 
@@ -143,12 +151,16 @@ local function sit(ply, parent, pos)
 	ply:SetEyeAngles(Angle(pitch, 0, 0))
 	vehicle:SetAngles(ang)
 
+	vehicle.IsGlueTrapChair = true
+
 	return vehicle
 end
 
 local function npcStuck(npc, ent, pos)
-	if npc.LastUnstuck and CurTime() - npc.LastUnstuck < 0.5 then
-		return
+	if npc:IsRagdoll() then
+		for i = 0, npc:GetPhysicsObjectCount() - 1 do
+			constraint.Weld(npc, ent, i, 0, 0)
+		end
 	end
 
 	npc:SetParent(ent)
@@ -161,15 +173,27 @@ end
 function Gluetrap.MakeStuck(ply, ent, pos)
 	if not IsValid(ply) or not IsValid(ent) then return end
 
+	if IsValid(ply.StuckTo) then return end
+	if not ent.StuckEnts then return end
+	if ply.LastUnstuck and CurTime() - ply.LastUnstuck < 0.5 then return end
+
 	if ply:IsNPC() or ply:IsNextBot() then
 		npcStuck(ply, ent, pos)
 		return
 	end
 
-	if not ply:IsPlayer() or IsValid(ply.StuckTo) then return end
-	if not ent.StuckEnts then return end
+	if not ply:IsPlayer() then
+		if not ent.StickAny or ply.IsGlueTrapChair then return end
 
-	if ply.LastUnstuck and CurTime() - ply.LastUnstuck < 0.5 then
+		if ply.StuckEnts then
+			local pCount = table.Count(ply.StuckEnts)
+			local eCount = table.Count(ent.StuckEnts)
+			if pCount > eCount then return end
+			if pCount == eCount and ply:EntIndex() > ent:EntIndex() then return end
+		end
+
+		npcStuck(ply, ent, pos)
+
 		return
 	end
 
@@ -188,7 +212,7 @@ function Gluetrap.MakeStuck(ply, ent, pos)
 end
 
 function Gluetrap.ClearStuck(ply)
-	if ply:IsNPC() or ply:IsNextBot() then
+	if not ply:IsPlayer() then
 		npcUnstuck(ply)
 		return
 	end
@@ -211,8 +235,8 @@ function Gluetrap.ClearStuck(ply)
 	end
 end
 
-duplicator.RegisterEntityModifier("gluetrap", function(_, ent)
-	Gluetrap.MakeGlueTrap(ent)
+duplicator.RegisterEntityModifier("gluetrap", function(_, ent, data)
+	Gluetrap.MakeGlueTrap(ent, data[1])
 end)
 
 hook.Add("PostPlayerDeath", "Gluetrap", function(ply)

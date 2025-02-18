@@ -1,6 +1,7 @@
 TOOL.Author = "textstack"
 TOOL.Category = "Construction"
 TOOL.Name = "#tool.gluetrap.name"
+TOOL.ClientConVar["stick_any"] = 0
 
 TOOL.Information = {
 	{name = "left"},
@@ -14,7 +15,7 @@ function TOOL:LeftClick(tr)
 	if ent:GetNWBool("gluetrap") then return end
 	if CLIENT then return true end
 
-	Gluetrap.MakeGlueTrap(ent)
+	Gluetrap.MakeGlueTrap(ent, self:GetClientNumber("stick_any") == 1)
 
 	undo.Create("Glue Trap")
 	undo.AddFunction(function()
@@ -61,4 +62,5 @@ end
 
 function TOOL.BuildCPanel(panel)
 	panel:Help("Turns props into glue traps.")
+	panel:CheckBox("Stick anything", "gluetrap_stick_any")
 end
